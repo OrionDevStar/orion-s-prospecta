@@ -2,6 +2,8 @@
 
 Aplicação web para encontrar negócios locais e organizar prospecção com dados do OpenStreetMap. Pode ser executada localmente ou publicada em um servidor estático, sem conta de usuário ou chave de API.
 
+![Interface do Prospecta com candidatos a revisão e mapa de negócios em São Paulo](docs/prospecta-screenshot.png)
+
 ## Instalação e execução local
 
 Requisito: **Node.js 24 ou superior**, com npm.
