@@ -1,0 +1,17 @@
+{
+  "name": "orion-s-prospecta",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Prospecção local com OpenStreetMap, executável por conta própria.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node scripts/prepare-assets.mjs && node scripts/serve.mjs",
+    "prepare:assets": "node scripts/prepare-assets.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs"
+  }
+}

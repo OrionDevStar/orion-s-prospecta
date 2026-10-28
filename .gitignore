@@ -1,0 +1,9 @@
+# Arquivos externos reproduzíveis pelo manifesto
+/dist/vendor/
+/dist/cities.json
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
