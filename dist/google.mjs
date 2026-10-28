@@ -2,22 +2,24 @@ import {sameBusiness,validateBackup,classifyWebsite} from './domain.mjs';
 import {createLeadStore} from './lead-store.mjs';
 import {GOOGLE_HISTORY_KEY,loadGoogleHistory,recordGoogleCheck,getGoogleCheck,googleMapsUrl} from './google-history.mjs';
 import {normalizeGoogleResult} from './google-results.mjs';
+import {needsGoogleCheck} from './google-queue.mjs';
 
+if(window.parent===window){
+ // Old bookmarks and direct links enter the same application view in this tab.
+ location.replace(new URL('./#google',import.meta.url));
+}else{
 const $=id=>document.getElementById(id),CANDIDATES_KEY='prospecta-google-candidates-v1';
 const results=new Map(),attempted=new Set(),selected=new Set();
 let usage=null,statusReady=false,busy=false,stopRequested=false,leaving=false,activeId='',activeController=null;
 let googleHistory=loadGoogleHistory().entries;
-const decisions=new Map();
-
-function ignoredRecords(){try{const saved=JSON.parse(localStorage.getItem('orion-prospecta-v1')||'{"leads":[]}');return Array.isArray(saved.leads)?saved.leads.filter(lead=>lead&&lead.ignored===true):[];}catch{return [];}}
-function isIgnored(candidate,records=ignoredRecords()){return records.some(lead=>sameBusiness(lead,candidate));}
+function savedRecords(){try{const result=createLeadStore({storage:localStorage}).load();return result.ok?result.leads:null;}catch{return null;}}
 
 function readEntry(payload){
  try{
   const raw=payload??JSON.parse(sessionStorage.getItem(CANDIDATES_KEY)||'[]'),list=Array.isArray(raw)?raw:raw?.candidates;
   if(!Array.isArray(list))return {candidates:[],selectedIds:[],runSingleId:''};
-  const seen=new Set(),ignored=ignoredRecords();
-  const candidates=list.slice(0,600).filter(item=>item&&typeof item==='object'&&typeof item.id==='string'&&/^osm:(node|way|relation):\d+$/.test(item.id)&&typeof item.name==='string'&&item.name.trim()&&typeof item.city==='string'&&item.city.trim()&&typeof item.lat==='number'&&Number.isFinite(item.lat)&&Math.abs(item.lat)<=90&&typeof item.lon==='number'&&Number.isFinite(item.lon)&&Math.abs(item.lon)<=180).filter(item=>{if(seen.has(item.id)||(isIgnored(item,ignored)&&!getGoogleCheck(item,googleHistory)))return false;seen.add(item.id);return true;}).map(item=>({id:item.id,name:item.name.slice(0,300),city:item.city.slice(0,150),address:String(item.address||'').slice(0,500),lat:item.lat,lon:item.lon,phoneNumber:String(item.phoneNumber||'').replace(/\D/g,'').slice(0,15),category:String(item.category||'Negócio local').slice(0,100),distance:Number.isFinite(item.distance)?item.distance:0,fetchedAt:String(item.fetchedAt||'').slice(0,40)}));
+  const seen=new Set();
+  const candidates=list.slice(0,600).filter(item=>item&&typeof item==='object'&&typeof item.id==='string'&&/^osm:(node|way|relation):\d+$/.test(item.id)&&typeof item.name==='string'&&item.name.trim()&&typeof item.city==='string'&&item.city.trim()&&typeof item.lat==='number'&&Number.isFinite(item.lat)&&Math.abs(item.lat)<=90&&typeof item.lon==='number'&&Number.isFinite(item.lon)&&Math.abs(item.lon)<=180).filter(item=>{if(seen.has(item.id))return false;seen.add(item.id);return true;}).map(item=>({id:item.id,name:item.name.slice(0,300),city:item.city.slice(0,150),address:String(item.address||'').slice(0,500),lat:item.lat,lon:item.lon,phoneNumber:String(item.phoneNumber||'').replace(/\D/g,'').slice(0,15),category:String(item.category||'Negócio local').slice(0,100),distance:Number.isFinite(item.distance)?item.distance:0,fetchedAt:String(item.fetchedAt||'').slice(0,40)}));
   const selectedIds=Array.isArray(raw?.selectedIds)?[...new Set(raw.selectedIds.slice(0,600).filter(id=>typeof id==='string'&&seen.has(id)))]:[];
   let runSingleId=!Array.isArray(raw)&&raw?.runSingle===true&&selectedIds.length===1?selectedIds[0]:'';
   if(!Array.isArray(raw)||payload){
@@ -29,7 +31,8 @@ function readEntry(payload){
 }
 const entry=readEntry(),candidates=entry.candidates;
 for(const id of entry.selectedIds)selected.add(id);
-function liveSession(){try{if(window.opener&&!window.opener.closed&&window.opener.location.origin===location.origin)return window.opener.prospectaGoogleSession;}catch{}return null;}
+function localApp(){try{if(window.parent!==window&&window.parent.location.origin===location.origin)return window.parent;}catch{}return null;}
+function liveSession(){return localApp()?.prospectaGoogleSession||null;}
 function syncLiveResults(){const session=liveSession();if(session)for(const [id,result] of results)session.set(id,result);}
 function restoreLiveResults(){const session=liveSession();if(!session)return;for(const candidate of candidates){const result=normalizeGoogleResult(session.get(candidate.id));if(result){results.set(candidate.id,result);attempted.add(candidate.id);selected.delete(candidate.id);}}syncLiveResults();}
 restoreLiveResults();
@@ -38,9 +41,9 @@ function safeUrl(value){try{const url=new URL(String(value||''));return /^https?
 function anchor(label,value){const url=safeUrl(value);if(!url)return null;const link=node('a','',label);link.href=url;link.target='_blank';link.rel='noopener noreferrer';return link;}
 function displayName(place){return typeof place?.displayName==='string'?place.displayName:place?.displayName?.text||'';}
 function remaining(){if(!usage?.enabled||usage.blocked)return 0;const limits=[usage.monthly,usage.daily,usage.rolling];if(limits.some(limit=>!limit||!Number.isFinite(limit.remaining)||!Number.isFinite(limit.limit)||limit.limit<0))return 0;return Math.max(0,Math.min(...limits.map(limit=>limit.remaining)));}
-function visibleCandidates(){const ignored=ignoredRecords();return candidates.filter(candidate=>results.has(candidate.id)||getGoogleCheck(candidate,googleHistory)||!isIgnored(candidate,ignored));}
-function unattempted(){const ignored=ignoredRecords();return visibleCandidates().filter(candidate=>!attempted.has(candidate.id)&&!isIgnored(candidate,ignored));}
-function selectedCandidates(){return unattempted().filter(candidate=>selected.has(candidate.id));}
+function visibleCandidates(saved=savedRecords()){return candidates.filter(candidate=>needsGoogleCheck(candidate,saved));}
+function unattempted(saved=savedRecords()){return visibleCandidates(saved).filter(candidate=>!attempted.has(candidate.id));}
+function selectedCandidates(saved=savedRecords()){return unattempted(saved).filter(candidate=>selected.has(candidate.id));}
 function announce(message){$('batch-status').textContent=message;}
 function showError(message){$('page-error').textContent=message;$('page-error').hidden=!message;}
 function formatCount(count,label){return count+' '+label+(count===1?'':'s');}
@@ -63,13 +66,13 @@ function renderUsage(){
  if(usage?.enabled){const monthly=usage.monthly?.limit??900,daily=usage.daily?.limit??25,rolling=usage.rolling?.limit??900;$('limit-note').textContent='Proteção desta instalação: até '+monthly+' chamadas no mês, '+daily+' por dia e '+rolling+' em qualquer período de 32 dias. As tentativas também são contabilizadas. Os créditos de teste não ampliam esses limites.';}
 }
 function renderControls(){
- const choices=selectedCandidates(),available=statusReady&&!busy&&remaining()>0&&choices.length>0;
+ const saved=savedRecords(),choices=selectedCandidates(saved),available=statusReady&&!busy&&remaining()>0&&choices.length>0;
  $('verify-next').disabled=!available;$('verify-batch').disabled=!available;$('refresh-status').disabled=busy;$('cancel-batch').hidden=!busy;$('cancel-batch').disabled=stopRequested;
- $('selection-count').textContent=formatCount(choices.length,'selecionado');$('select-all').disabled=!unattempted().some(candidate=>!selected.has(candidate.id));$('clear-selection').disabled=!choices.length;
+ $('selection-count').textContent=formatCount(choices.length,'selecionado');$('select-all').disabled=!unattempted(saved).some(candidate=>!selected.has(candidate.id));$('clear-selection').disabled=!choices.length;
  const batchSize=Math.min(5,choices.length,remaining());$('verify-batch').textContent=batchSize?'Consultar selecionados ('+batchSize+')':'Consultar selecionados';
  for(const checkbox of document.querySelectorAll('.candidate-checkbox')){checkbox.checked=selected.has(checkbox.dataset.candidateId);checkbox.disabled=attempted.has(checkbox.dataset.candidateId);}
  for(const button of document.querySelectorAll('.consult-google'))button.disabled=busy||!statusReady||remaining()<=0||attempted.has(button.dataset.candidateId);
- for(const button of document.querySelectorAll('.refresh-result'))button.disabled=busy||!statusReady||remaining()<=0||isIgnored(candidates.find(candidate=>candidate.id===button.dataset.candidateId));
+ for(const button of document.querySelectorAll('.refresh-result'))button.disabled=busy||!statusReady||remaining()<=0||!needsGoogleCheck(candidates.find(candidate=>candidate.id===button.dataset.candidateId),saved);
 }
 function attributionsFor(place){const wrap=node('p','provider-attributions');wrap.append(document.createTextNode('Google Maps'));for(const item of Array.isArray(place?.attributions)?place.attributions:[]){const label=String(item.provider||'').slice(0,300);if(!label)continue;wrap.append(document.createTextNode(' · '));const link=anchor(label,item.providerUri);wrap.append(link||document.createTextNode(label));}return wrap;}
 function placeDetails(place){
@@ -86,15 +89,15 @@ function applyDecision(candidate,ignored){
   // The user's decision refers to the original OSM candidate, not a copy of Places data.
   if(!found)leads.push(validateBackup({version:1,leads:[{...candidate,ignored,ignoredAt:ignored?new Date().toISOString():'',verified:'unknown',stage:'Revisar'}]})[0]);
   const written=store.save(leads);if(!written.ok){showError(written.error);return false;}
-  decisions.set(candidate.id,ignored?'Ignorado por você · salvo na minha lista':'Mantido na minha lista · revisão preservada');showError('');renderCandidates();
-  announce(ignored?'Decisão salva. O estabelecimento saiu da fila da busca local. Você pode desfazer em Ignorados.':'Candidato salvo na Minha lista. Notas e revisões existentes foram preservadas; consultar o Google não qualifica uma oportunidade.');
+  showError('');renderCandidates();
+  announce(ignored?'Decisão salva. O estabelecimento saiu da fila. Você pode desfazer em Ignorados.':'Salvo na Minha lista e retirado da consulta Google. Suas notas e revisões foram preservadas.');
   return true;
  }catch{showError('Não foi possível salvar sua decisão. Os dados anteriores foram preservados.');return false;}
 }
 function cardFor(candidate){
- const result=results.get(candidate.id),check=getGoogleCheck(candidate,googleHistory),ignored=isIgnored(candidate),card=node('article','candidate-card'+(candidate.id===activeId?' is-active':''));card.dataset.id=candidate.id;
+ const result=results.get(candidate.id),check=getGoogleCheck(candidate,googleHistory),card=node('article','candidate-card'+(candidate.id===activeId?' is-active':''));card.dataset.id=candidate.id;
  const heading=node('div','card-heading'),identity=node('div','candidate-identity');
- if(!attempted.has(candidate.id)&&!ignored){
+ if(!attempted.has(candidate.id)){
   const label=node('label','candidate-select'),checkbox=node('input','candidate-checkbox');checkbox.type='checkbox';checkbox.checked=selected.has(candidate.id);checkbox.dataset.candidateId=candidate.id;checkbox.dataset.focus='select:'+candidate.id;checkbox.setAttribute('aria-label','Selecionar '+candidate.name+' para consultar no Google');
   checkbox.addEventListener('change',()=>{if(checkbox.checked)selected.add(candidate.id);else selected.delete(candidate.id);renderControls();});label.append(checkbox,node('span','','Selecionar para consulta'));identity.append(label);
  }
@@ -110,25 +113,26 @@ function cardFor(candidate){
  else if(result?.status==='ambiguous'){badge='Identificação incerta · pendente';className+=' checked';detail='A correspondência não foi suficientemente clara. Confira o nome, o endereço e a localização antes de concluir.';}
  else if(result?.status==='not_found'){badge='Não localizado · pendente';className+=' checked';detail='Não foi localizado um estabelecimento correspondente nesta consulta. Isso não comprova ausência de presença digital.';}
  else if(result?.status==='error'){badge='Consulta interrompida';className+=' error';detail=result.message||'Não foi possível concluir a consulta. Nenhuma conclusão foi registrada.';}
- else if(check){badge=ignored?'Ignorado por você':'Consulta anterior';detail=ignored?'Sua decisão de ignorar está salva. O atalho abaixo permite rever a ficha no Maps.':'Abra a ficha no Maps para rever o cadastro. Buscar dados atualizados pela API exige uma nova consulta explícita.';}
+ else if(check){badge='Consulta anterior';detail='Abra a ficha no Maps para rever o cadastro. Buscar dados atualizados pela API exige uma nova consulta explícita.';}
  heading.append(node('span',className,badge));card.append(heading,node('p','result-detail',detail));
  if(check){const history=node('div','consultation-history');history.append(node('p','','Consultado em '+new Date(check.checkedAt).toLocaleString('pt-BR')+(result?'':'. Os detalhes desta consulta anterior não estão disponíveis. Abra a ficha no Maps sem gastar API.')));const link=anchor(check.placeId?'Abrir ficha no Maps ↗':'Buscar no Maps ↗',googleMapsUrl(candidate,check));if(link){link.className='google-profile-link';link.title='Abre o Google Maps sem consumir uma consulta da API';history.append(link);}card.append(history);}
  if(result?.place)card.append(placeDetails(result.place));
  if(result?.status==='ambiguous'&&Array.isArray(result.alternatives)&&result.alternatives.length){const section=node('div','google-result');section.append(node('p','', 'Possíveis correspondências, ainda não confirmadas:'));const list=node('ul','alternative-list');for(const place of result.alternatives.slice(0,3)){const item=node('li'),name=displayName(place)||'Estabelecimento',link=anchor(name+' ↗',place.googleMapsUri);item.append(link||document.createTextNode(name));if(place.formattedAddress)item.append(document.createTextNode(' · '+String(place.formattedAddress)));const closure={CLOSED_PERMANENTLY:'Fechado permanentemente',CLOSED_TEMPORARILY:'Fechado temporariamente'}[place.businessStatus];if(closure)item.append(node('span','alternative-closure',closure+' no cadastro desta possível correspondência'));item.append(attributionsFor(place));list.append(item);}section.append(list);card.append(section);}
  const actions=node('div','candidate-actions');
- if(!attempted.has(candidate.id)&&!ignored){const button=node('button','secondary consult-google',check?'Consultar novamente (1 chamada)':'Consultar Google');button.type='button';button.dataset.candidateId=candidate.id;button.dataset.focus='verify:'+candidate.id;button.addEventListener('click',()=>verifySingle(candidate));actions.append(button);}
- if(result&&!ignored){const refresh=node('button','text-button refresh-result','Atualizar dados (1 chamada)');refresh.type='button';refresh.dataset.candidateId=candidate.id;refresh.dataset.focus='refresh:'+candidate.id;refresh.addEventListener('click',()=>{if(busy||remaining()<=0)return;attempted.delete(candidate.id);verifySingle(candidate);});actions.append(refresh);}
- const keep=node('button','secondary keep-candidate',ignored?'Voltar a verificar':'Manter para revisar');keep.type='button';keep.dataset.focus='keep:'+candidate.id;keep.addEventListener('click',()=>applyDecision(candidate,false));actions.append(keep);
- if(result&&!ignored&&liveSession()){const review=node('button','secondary review-in-list','Concluir revisão na lista ↗');review.type='button';review.dataset.focus='review:'+candidate.id;review.addEventListener('click',()=>{if(!applyDecision(candidate,false))return;try{if(window.opener.prospectaReviewCandidate?.(candidate.id))window.opener.focus();}catch{showError('Abra a revisão deste candidato na busca local para concluir.');}});actions.append(review);}
- if(!ignored){const ignore=node('button','secondary ignore-candidate','Ignorar na minha lista');ignore.type='button';ignore.dataset.focus='ignore:'+candidate.id;ignore.addEventListener('click',()=>applyDecision(candidate,true));actions.append(ignore);}
- card.append(actions);if(ignored||decisions.has(candidate.id))card.append(node('p','decision-status',ignored?'Ignorado por você · salvo na minha lista':decisions.get(candidate.id)));
+ if(!attempted.has(candidate.id)){const button=node('button','secondary consult-google',check?'Consultar novamente (1 chamada)':'Consultar Google');button.type='button';button.dataset.candidateId=candidate.id;button.dataset.focus='verify:'+candidate.id;button.addEventListener('click',()=>verifySingle(candidate));actions.append(button);}
+ if(result){const refresh=node('button','text-button refresh-result','Atualizar dados (1 chamada)');refresh.type='button';refresh.dataset.candidateId=candidate.id;refresh.dataset.focus='refresh:'+candidate.id;refresh.addEventListener('click',()=>{if(busy||remaining()<=0)return;attempted.delete(candidate.id);verifySingle(candidate);});actions.append(refresh);}
+ const keep=node('button','secondary keep-candidate','Salvar na Minha lista');keep.type='button';keep.dataset.focus='keep:'+candidate.id;keep.addEventListener('click',()=>applyDecision(candidate,false));actions.append(keep);
+ if(result&&liveSession()){const review=node('button','secondary review-in-list','Concluir revisão na lista');review.type='button';review.dataset.focus='review:'+candidate.id;review.addEventListener('click',()=>{if(!applyDecision(candidate,false))return;try{localApp()?.prospectaReviewCandidate?.(candidate.id);}catch{showError('Abra a revisão deste candidato na busca local para concluir.');}});actions.append(review);}
+ const ignore=node('button','secondary ignore-candidate','Ignorar na minha lista');ignore.type='button';ignore.dataset.focus='ignore:'+candidate.id;ignore.addEventListener('click',()=>applyDecision(candidate,true));actions.append(ignore);
+ card.append(actions);
  return card;
 }
 function renderCandidates(){
- const focusKey=document.activeElement?.dataset?.focus,anchorId=activeId||document.activeElement?.closest('.candidate-card')?.dataset?.id,previousAnchor=anchorId?[...document.querySelectorAll('.candidate-card')].find(card=>card.dataset.id===anchorId):null,anchorTop=previousAnchor?.getBoundingClientRect().top,scrollY=window.scrollY,activeCandidates=visibleCandidates();
- const waiting=unattempted().length,completed=activeCandidates.filter(candidate=>results.has(candidate.id)).length;$('candidate-count').textContent=activeCandidates.length;$('queue-summary').textContent=activeCandidates.length?formatCount(completed,'resultado')+' nesta aba · '+formatCount(waiting,'candidato')+' disponível para consulta. Cada resultado aparece no próprio cartão; nenhum é movido após a consulta.':'Envie candidatos a partir da busca local para começar. Negócios ignorados ficam fora desta fila.';
+ const focusKey=document.activeElement?.dataset?.focus,anchorId=activeId||document.activeElement?.closest('.candidate-card')?.dataset?.id,previousAnchor=anchorId?[...document.querySelectorAll('.candidate-card')].find(card=>card.dataset.id===anchorId):null,anchorTop=previousAnchor?.getBoundingClientRect().top,scrollY=window.scrollY,saved=savedRecords(),activeCandidates=visibleCandidates(saved),activeIds=new Set(activeCandidates.map(candidate=>candidate.id));
+ for(const id of selected)if(!activeIds.has(id))selected.delete(id);
+ const waiting=unattempted(saved).length,completed=activeCandidates.filter(candidate=>results.has(candidate.id)).length;$('candidate-count').textContent=activeCandidates.length;$('queue-summary').textContent=!saved?'Não foi possível conferir Minha lista. As consultas estão bloqueadas.':activeCandidates.length?formatCount(completed,'resultado')+' nesta aba · '+formatCount(waiting,'candidato')+' disponível para consulta. Negócios salvos na Minha lista ficam fora desta fila.':'Nenhum candidato novo. Negócios salvos na Minha lista não aparecem para consultar novamente.';
  $('candidates-list').replaceChildren(...activeCandidates.map(cardFor));
- if(!activeCandidates.length){const empty=node('div','empty-state');empty.append(node('h3','','Comece pela busca local'),node('p','','Escolha uma cidade e um nicho na busca local e abra a conferência Google para os candidatos pendentes.'));const link=node('a','','Voltar à busca local ↗');link.href='./';empty.append(link);$('candidates-list').append(empty);}
+ if(!activeCandidates.length){const empty=node('div','empty-state');empty.append(node('h3','',saved?'Nenhum candidato novo':'Minha lista indisponível'),node('p','',saved?'Faça outra busca local para encontrar negócios que ainda não estão na Minha lista.':'Não foi possível conferir os registros salvos. Nenhum candidato será enviado ao Google até a leitura ser válida.'));const link=node('a','','Voltar à busca local');link.href='./';empty.append(link);$('candidates-list').append(empty);}
  renderControls();
  if(focusKey){const focus=[...document.querySelectorAll('[data-focus]')].find(element=>element.dataset.focus===focusKey&&!element.disabled);focus?.focus({preventScroll:true});}
  if(Number.isFinite(anchorTop)){const nextAnchor=[...document.querySelectorAll('.candidate-card')].find(card=>card.dataset.id===anchorId);if(nextAnchor)window.scrollTo({top:Math.max(0,scrollY+nextAnchor.getBoundingClientRect().top-anchorTop),behavior:'instant'});}
@@ -140,11 +144,11 @@ async function refreshStatus({preserveError=false,allowBusy=false}={}){
  finally{renderControls();$('refresh-status').disabled=busy;}
 }
 async function verifyBatch(size,requested=null){
- if(busy||!statusReady||remaining()<=0)return;const batch=(requested||selectedCandidates()).filter(candidate=>!attempted.has(candidate.id)&&selected.has(candidate.id)).slice(0,Math.min(size,5,remaining()));if(!batch.length)return;
+ if(busy||!statusReady||remaining()<=0)return;const saved=savedRecords(),batch=(requested||selectedCandidates(saved)).filter(candidate=>needsGoogleCheck(candidate,saved)&&!attempted.has(candidate.id)&&selected.has(candidate.id)).slice(0,Math.min(size,5,remaining()));if(!batch.length)return;
  busy=true;stopRequested=false;showError('');let completed=0;
  try{
   for(const candidate of batch){
-   if(stopRequested||remaining()<=0)break;if(!selected.has(candidate.id)||isIgnored(candidate)){selected.delete(candidate.id);continue;}activeId=candidate.id;selected.delete(candidate.id);attempted.add(candidate.id);announce('Consultando '+candidate.name+'… '+(completed+1)+' de '+batch.length+'.');renderCandidates();
+   if(stopRequested||remaining()<=0)break;const latest=savedRecords();if(!latest){showError('Não foi possível conferir Minha lista. As próximas consultas foram bloqueadas.');stopRequested=true;break;}if(!selected.has(candidate.id)||!needsGoogleCheck(candidate,latest)){selected.delete(candidate.id);continue;}activeId=candidate.id;selected.delete(candidate.id);attempted.add(candidate.id);announce('Consultando '+candidate.name+'… '+(completed+1)+' de '+batch.length+'.');renderCandidates();
    activeController=new AbortController();const timer=setTimeout(()=>activeController?.abort(),20000);
    try{
     const response=await fetch('/api/places/verify',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json','X-Prospecta-Request':'places-v1'},body:JSON.stringify({candidate}),signal:activeController.signal,cache:'no-store'}),body=await response.json();
@@ -158,12 +162,11 @@ async function verifyBatch(size,requested=null){
   }
  }finally{if(stopRequested&&!leaving)await refreshStatus({preserveError:true,allowBusy:true});busy=false;activeId='';announce((stopRequested?'Sequência interrompida. ':'')+formatCount(completed,'consulta')+(completed===1?' concluída. ':' concluídas. ')+(unattempted().length?'Os próximos candidatos aguardam sua ação.':'Nenhuma consulta adicional será iniciada.'));renderCandidates();}
 }
-function verifySingle(candidate){if(busy||!statusReady||remaining()<=0||attempted.has(candidate.id)||isIgnored(candidate))return;selected.add(candidate.id);return verifyBatch(1,[candidate]);}
+function verifySingle(candidate){if(busy||!statusReady||remaining()<=0||attempted.has(candidate.id)||!needsGoogleCheck(candidate,savedRecords()))return;selected.add(candidate.id);return verifyBatch(1,[candidate]);}
 $('verify-next').addEventListener('click',()=>verifyBatch(1));$('verify-batch').addEventListener('click',()=>verifyBatch(5));$('refresh-status').addEventListener('click',()=>refreshStatus());
 $('select-all').addEventListener('click',()=>{for(const candidate of unattempted())selected.add(candidate.id);renderControls();});$('clear-selection').addEventListener('click',()=>{selected.clear();renderControls();});
 $('cancel-batch').addEventListener('click',()=>{stopRequested=true;announce('Parando após a consulta em andamento. Nenhuma próxima consulta será iniciada.');renderControls();});
-function returnToList(event){try{const home=new URL('./',import.meta.url);if(window.opener&&!window.opener.closed&&window.opener.location.origin===home.origin){event.preventDefault();window.opener.focus();return;}const previous=new URL(document.referrer);if(history.length>1&&previous.origin===home.origin&&(previous.pathname===home.pathname||previous.pathname===home.pathname+'index.html')){event.preventDefault();history.back();}}catch{}}
-document.querySelector('.back-link').addEventListener('click',returnToList);document.querySelector('.brand').addEventListener('click',returnToList);
+document.addEventListener('click',event=>{const link=event.target.closest('a');if(!link||link.target==='_blank')return;const home=new URL('./',import.meta.url),url=new URL(link.href);if(url.origin===home.origin&&(url.pathname===home.pathname||url.pathname===home.pathname+'index.html')){const app=localApp();if(app?.prospectaReturnToList){event.preventDefault();app.prospectaReturnToList();}}});
 window.addEventListener('pagehide',event=>{leaving=true;stopRequested=true;if(activeId&&!results.has(activeId))results.set(activeId,{status:'error',message:'A consulta foi interrompida ao sair. A tentativa pode ter sido contabilizada; ela não será repetida automaticamente.'});syncLiveResults();activeController?.abort();if(!event.persisted){results.clear();attempted.clear();selected.clear();$('candidates-list').replaceChildren();}});
 window.addEventListener('pageshow',event=>{if(event.persisted){leaving=false;busy=false;activeId='';stopRequested=false;renderCandidates();refreshStatus();}});
 window.addEventListener('storage',event=>{if(event.key===GOOGLE_HISTORY_KEY)googleHistory=loadGoogleHistory().entries;if(event.key===GOOGLE_HISTORY_KEY||event.key==='orion-prospecta-v1')renderCandidates();});
@@ -178,5 +181,7 @@ window.prospectaGoogleReceive=async payload=>{
  const focusId=incoming.selectedIds[0];if(focusId){document.querySelector('[data-id="'+focusId+'"]')?.scrollIntoView({block:'center'});}
  if(incoming.runSingleId&&!leaving){await initialStatus;const candidate=candidates.find(item=>item.id===incoming.runSingleId);if(results.has(incoming.runSingleId)){announce('Resultado já disponível nesta aba. Nenhuma nova consulta foi feita.');return;}if(candidate){if(busy)announce('Há uma consulta em andamento. O novo candidato aguarda sua ação.');else verifySingle(candidate);}}
 };
+localApp()?.prospectaGoogleViewReady?.();
 await initialStatus;
 if(entry.runSingleId&&!leaving){const candidate=candidates.find(item=>item.id===entry.runSingleId);if(candidate)verifySingle(candidate);}
+}

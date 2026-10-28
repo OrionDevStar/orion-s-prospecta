@@ -18,3 +18,4 @@ dialog{border:1px solid var(--line);border-radius:15px;padding:28px;max-width:54
 .workspace-state{flex-basis:100%;line-height:1.6;color:var(--muted)}.workspace-state.save-warning{color:#965e34}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition:none!important}}
 .badge-google{background:#e9eff9;color:#365b80}.lead-card>.google-profile-link{display:inline-block;color:var(--green);font-size:11px;font-weight:600;margin:7px 0 0;text-decoration:none}.lead-card>.google-profile-link:hover{text-decoration:underline}
+body.google-view{overflow:hidden}#google-screen{position:fixed;inset:0;background:var(--paper);z-index:3000}#google-frame{display:block;width:100%;height:100%;border:0}

@@ -8,7 +8,7 @@ export function normalizeGoogleResult(result){
  return {...structuredClone(result),status};
 }
 
-// Live browser memory only. The local map holds this for the separate Google tab;
+// Live browser memory only. The application holds this for the Google view;
 // no Google content is added to map markers, localStorage, sessionStorage or exports.
 export function createGoogleResultSession(){
  const entries=new Map();

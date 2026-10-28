@@ -1,22 +1,23 @@
 import {STAGES,NICHES,fold,safeUrl,queryFor,normalizeElement,uniqueLeads,toCsv,validateBackup,digitalPresence,canProspect,mergePresenceLinks,sameBusiness,distanceKm,classifyWebsite} from './domain.mjs';
-import {loadWorkspace,saveWorkspace,normalizeWorkspace,WORKSPACE_TAB_KEY} from './workspace.mjs';
+import {loadWorkspace,saveWorkspace,normalizeWorkspace} from './workspace.mjs';
 import {createLeadStore} from './lead-store.mjs';
 import {GOOGLE_HISTORY_KEY,loadGoogleHistory,getGoogleCheck,googleMapsUrl} from './google-history.mjs';
 import {createGoogleResultSession} from './google-results.mjs';
+import {needsGoogleCheck} from './google-queue.mjs';
 window.prospectaGoogleSession=createGoogleResultSession();
 const $=id=>document.getElementById(id),STORAGE='orion-prospecta-v1',CACHE='orion-prospecta-cache-v1';
 let cities=[],results=[],saved=[],visible=[],view='discover',busy=false,searched=false,lastSearch=0,selectedId='',editingLead=null,editingForm=null,rechecking=false,googleReady=false,map,markers,areaCircle,currentCity,noticeTimer,storageAvailable=true,leadStore,crmDirty=false;
 const initialWorkspace=loadWorkspace();
 let restoredWorkspace=initialWorkspace.workspace,workspaceReady=false,workspaceTimer,restoringWorkspace=false,searchedAt='',pendingListScroll=null,workspaceWarning='';
-let googleHistory=loadGoogleHistory().entries,googleWindow=null;
-const googleWindowFallback=globalThis.crypto?.randomUUID?.()||'tab-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+let googleHistory=loadGoogleHistory().entries,googleFrame=null,pendingGoogleEntry=null,googleViewShown=false,localScrollTop=0,localListScrollTop=0,suspendedDialog=null,pendingReviewId='';
+const localTitle=document.title;
 const categories={hairdresser:'Salão / barbearia',beauty:'Beleza',car_repair:'Oficina mecânica',car_parts:'Autopeças',tyres:'Pneus',restaurant:'Restaurante',cafe:'Café',fast_food:'Lanchonete',dentist:'Odontologia',doctors:'Consultório',clinic:'Clínica',pharmacy:'Farmácia',pet:'Pet shop',pet_grooming:'Banho e tosa',veterinary:'Veterinário',bakery:'Padaria',supermarket:'Supermercado',convenience:'Mercado',clothes:'Vestuário',accountant:'Contabilidade',lawyer:'Advocacia',hotel:'Hotel',guest_house:'Pousada',car_wash:'Lavação',fuel:'Posto de combustível'};
 try{leadStore=createLeadStore({storage:localStorage,key:STORAGE});const initial=leadStore.load();saved=initial.leads;storageAvailable=initial.ok;}catch{storageAvailable=false;}
 function toast(message){clearTimeout(noticeTimer);$('status-message').textContent=message;$('status-message').classList.add('visible');noticeTimer=setTimeout(()=>$('status-message').classList.remove('visible'),6500);}
 function persist(){const result=leadStore?.save(saved);if(result?.ok){saved=result.leads;crmDirty=false;storageAvailable=true;updateLocalState();return true;}crmDirty=true;storageAvailable=false;$('local-state').textContent='Alterações ainda não salvas. Os dados anteriores foram preservados.';toast(result?.error||'Não foi possível salvar a lista. Mantenha esta página aberta para preservar as alterações.');return false;}
 function countLabel(count,singular,plural){return count+' '+(count===1?singular:plural);}
 function updateLocalState(){if(storageAvailable)$('local-state').textContent=countLabel(saved.filter(canProspect).length,'oportunidade','oportunidades')+' · '+countLabel(saved.length,'revisão','revisões')+' neste navegador';}
-function captureWorkspace(){const center=map?.getCenter();return {version:1,results,city:currentCity||null,search:{cityInput:$('city').value,niche:$('niche').value,radius:Number($('radius').value)},view,filters:{name:$('name-filter').value,contactOnly:$('contact-only').checked,stage:$('stage-filter').value,sort:$('sort').value,presence:$('presence-filter').value},selectedId,listScrollTop:$('results').scrollTop,mapView:center?{lat:center.lat,lon:center.lng,zoom:map.getZoom()}:restoredWorkspace?.mapView||null,searched,searchedAt};}
+function captureWorkspace(){const center=map?.getCenter();return {version:1,results,city:currentCity||null,search:{cityInput:$('city').value,niche:$('niche').value,radius:Number($('radius').value)},view,filters:{name:$('name-filter').value,contactOnly:$('contact-only').checked,stage:$('stage-filter').value,sort:$('sort').value,presence:$('presence-filter').value},selectedId,listScrollTop:googleViewShown?localListScrollTop:$('results').scrollTop,mapView:center?{lat:center.lat,lon:center.lng,zoom:map.getZoom()}:restoredWorkspace?.mapView||null,searched,searchedAt};}
 function flushWorkspace({notify=false}={}){
  clearTimeout(workspaceTimer);if(!workspaceReady||restoringWorkspace||busy)return {ok:true};
  const result=saveWorkspace(captureWorkspace());
@@ -54,27 +55,56 @@ function empty(title,body,loading=false){$('results').replaceChildren();const wr
 function reviewButton(){const button=node('button','primary','Ver candidatos para conferir');button.type='button';button.addEventListener('click',()=>setView('review'));$('results').querySelector('.empty').append(button);}
 function reviewDate(l){return l.reviewedAt?new Date(l.reviewedAt).toLocaleDateString('pt-BR'):'';}
 function actionLabel(l){return canProspect(l)?'Editar oportunidade ↗':l.ignored||digitalPresence(l).status==='exists'?'Ver revisão ↗':'Verificar presença ↗';}
-function googleCandidates(){const text=fold($('name-filter').value),stage=$('stage-filter').value;if(view==='saved'&&$('presence-filter').value==='ignored')return [];return (view==='saved'?saved:searched?results:saved).map(merged).filter(l=>!l.ignored&&digitalPresence(l).status!=='exists'&&(!text||fold(l.name).includes(text))&&(!$('contact-only').checked||hasContact(l))&&(view!=='saved'||!stage||l.stage===stage));}
+function googleCandidates(){if(!storageAvailable)return [];const text=fold($('name-filter').value),stage=$('stage-filter').value;return (view==='saved'?saved:searched?results:saved).map(merged).filter(l=>needsGoogleCheck(l,saved)&&(!text||fold(l.name).includes(text))&&(!$('contact-only').checked||hasContact(l))&&(view!=='saved'||!stage||l.stage===stage));}
+function googleSourceCandidates(leads){return leads.slice(0,600).map(l=>({id:l.id,name:l.name,city:l.city,address:l.address,lat:l.lat,lon:l.lon,phoneNumber:l.phoneNumber,category:l.category,distance:l.distance,fetchedAt:l.fetchedAt}));}
+function deliverGoogleEntry(){
+ if(!googleViewShown||!pendingGoogleEntry||typeof googleFrame?.contentWindow?.prospectaGoogleReceive!=='function')return;
+ const payload=pendingGoogleEntry;pendingGoogleEntry=null;googleFrame.contentWindow.prospectaGoogleReceive(payload);
+}
+window.prospectaGoogleViewReady=deliverGoogleEntry;
+function hasReviewDraft(){const fields={verified:'lead-verified',reviewUrl:'lead-review-url',stage:'lead-stage',followup:'lead-followup',notes:'lead-notes'};return !!editingForm&&(rechecking||Object.entries(fields).some(([field,id])=>$(id).value!==editingForm[field]));}
+function updateGoogleView(){
+ const show=location.hash==='#google';
+ if(show&&!googleViewShown){localScrollTop=window.scrollY;localListScrollTop=$('results').scrollTop;suspendedDialog=document.querySelector('dialog[open]');suspendedDialog?.close();}
+ const wasGoogle=googleViewShown;googleViewShown=show;$('local-screen').hidden=show;$('local-screen').inert=show;$('google-screen').hidden=!show;document.body.classList.toggle('google-view',show);document.title=show?'Conferir no Google · Prospecta':localTitle;
+ if(show){
+  if(!googleFrame){
+   try{if(!sessionStorage.getItem('prospecta-google-candidates-v1'))sessionStorage.setItem('prospecta-google-candidates-v1',JSON.stringify(googleSourceCandidates(googleCandidates())));}catch{}
+   googleFrame=document.createElement('iframe');googleFrame.id='google-frame';googleFrame.title='Conferência Google de estabelecimentos';googleFrame.src=new URL('./google.html',import.meta.url).href;googleFrame.addEventListener('load',deliverGoogleEntry);$('google-screen').append(googleFrame);
+  }
+  deliverGoogleEntry();if(!wasGoogle)googleFrame.focus();
+ }else if(wasGoogle){
+  pendingGoogleEntry=null;pendingListScroll=localListScrollTop;reloadSaved();window.scrollTo({top:localScrollTop,behavior:'instant'});requestAnimationFrame(()=>map?.invalidateSize({pan:false}));
+  const dialog=suspendedDialog;suspendedDialog=null;
+  if(pendingReviewId){
+   const id=pendingReviewId;pendingReviewId='';const lead=[...results,...saved].map(merged).find(item=>item.id===id);
+   if(dialog?.id==='lead-dialog'&&(editingLead?.id===id||hasReviewDraft())){dialog.showModal();if(editingLead?.id!==id){pendingReviewId=id;$('lead-review-note').textContent='Sua revisão em andamento foi preservada. Salve ou feche esta revisão para abrir o outro candidato.';}}else if(lead)openLead(lead);else dialog?.showModal();
+  }else dialog?.showModal();
+ }
+}
+window.prospectaReturnToList=()=>{
+ pendingGoogleEntry=null;
+ if(location.hash==='#google'&&history.state?.prospectaGoogle===true)history.back();
+ else{const url=new URL(location.href);url.hash='';history.replaceState(null,'',url);updateGoogleView();}
+};
 function openGoogle(candidates,{runSingle=false}={}){
- googleHistory=loadGoogleHistory().entries;
- const eligible=candidates.map(merged).filter(l=>!l.ignored);
- if(!runSingle)for(const lead of [...results,...saved].map(merged)){if(getGoogleCheck(lead,googleHistory)&&!eligible.some(item=>item.id===lead.id))eligible.push(lead);}
- if(!eligible.length&&!googleHistory.length){toast('Faça uma busca e escolha candidatos que não foram ignorados.');return;}
  if(crmDirty&&!persist())return;
+ const latest=leadStore?.load();if(!latest?.ok){toast('Não foi possível conferir Minha lista. A consulta foi bloqueada para evitar repetir negócios já salvos.');return;}saved=latest.leads;storageAvailable=true;
+ googleHistory=loadGoogleHistory().entries;
+ const eligible=candidates.map(merged).filter(l=>needsGoogleCheck(l,saved));
+ if(!eligible.length){toast('Não há candidatos novos para consultar. Negócios da Minha lista ficam fora da consulta Google.');render();return;}
  if(!visible.length){if(view==='discover')view='review';else if(view==='saved'&&$('presence-filter').value==='qualified')$('presence-filter').value='all';render();}
  if(!flushWorkspace({notify:true}).ok)return;
  try{
   googleHistory=loadGoogleHistory().entries;
-  const list=eligible.slice(0,600).map(l=>({id:l.id,name:l.name,city:l.city,address:l.address,lat:l.lat,lon:l.lon,phoneNumber:l.phoneNumber,category:l.category,distance:l.distance,fetchedAt:l.fetchedAt}));
+  const list=googleSourceCandidates(eligible);
   const payload={candidates:list,selectedIds:runSingle?[list[0].id]:[],runSingle:runSingle&&!getGoogleCheck(list[0],googleHistory)};
-  sessionStorage.setItem('prospecta-google-candidates-v1',JSON.stringify(payload));
-  const target=googleWindow&&!googleWindow.closed?googleWindow:window.open('','prospecta-google-'+(sessionStorage.getItem(WORKSPACE_TAB_KEY)||googleWindowFallback));
-  if(!target){toast('O navegador bloqueou a aba de conferência. Permita abrir abas para este endereço e tente novamente. Sua lista continua salva.');return;}
-  googleWindow=target;const url=new URL('./google.html',import.meta.url);
-  let isGoogle=false;try{isGoogle=target.location.origin===url.origin&&target.location.pathname===url.pathname;}catch{}
-  if(isGoogle){target.opener=window;if(typeof target.prospectaGoogleReceive==='function')target.prospectaGoogleReceive(payload);else target.addEventListener('load',()=>target.prospectaGoogleReceive?.(payload),{once:true});}
-  else target.location.replace(url.href);
-  target.focus();
+  // Persist only the source candidates. An explicit API request is delivered once
+  // in memory, so reload or browser Forward never repeats it.
+  sessionStorage.setItem('prospecta-google-candidates-v1',JSON.stringify({...payload,runSingle:false}));
+  pendingGoogleEntry=payload;
+  if(location.hash!=='#google')history.pushState({prospectaGoogle:true},'','#google');
+  updateGoogleView();
  }
  catch{toast('Não foi possível preparar a conferência. Confira se o armazenamento da sessão está disponível.');}
 }
@@ -89,13 +119,14 @@ async function googleStatus(){
  finally{render();}
 }
 function render(){
+ if(googleViewShown)return;
  const listScroll=pendingListScroll??$('results').scrollTop;
  const pool=(searched?results:saved).map(merged),pending=pool.filter(l=>!l.ignored&&digitalPresence(l).status==='unknown'),excluded=pool.filter(l=>!l.ignored&&digitalPresence(l).status==='exists'),ignoredCount=saved.filter(l=>l.ignored).length;
  $('found-count').textContent=pool.filter(canProspect).length;$('review-count').textContent=pending.length;$('saved-count').textContent=saved.filter(canProspect).length;
  for(const [id,key] of [['discover-tab','discover'],['review-tab','review'],['saved-tab','saved']])$(id).setAttribute('aria-pressed',view===key);
  $('stage-filter').hidden=view!=='saved';$('presence-filter-label').hidden=view!=='saved';
  $('show-ignored').hidden=view!=='review'||!ignoredCount;$('show-ignored').textContent='Ignorados ('+ignoredCount+')';
- $('google-review').disabled=busy||(!googleCandidates().length&&!googleHistory.length);
+ $('google-review').disabled=busy||!googleCandidates().length;
  $('verification-summary').textContent=(searched||saved.length)?pending.length+' para verificar · '+excluded.length+' com site ou solução online.':'Redes sociais não eliminam candidatos. Confira site, cardápio e pedidos.';
  updateLocalState();
  if(busy){visible=[];renderMarkers();empty('Consultando o mapa…','Buscando registros reais. Pode levar até 35 segundos.',true);$('result-caption').textContent='Busca em andamento';$('export-csv').disabled=true;return;}
@@ -119,7 +150,7 @@ function render(){
   if(googleCheck){const link=anchor(googleCheck.placeId?'Abrir ficha no Maps ↗':'Buscar no Maps ↗',googleMapsUrl(l,googleCheck),'Abre o Google Maps sem consumir uma consulta da API');link.className='google-profile-link';card.append(link);}
   const bottom=node('div','card-bottom'),save=node('button','save-button'+(isSaved(l.id)?' saved':''),actionLabel(l));save.type='button';save.addEventListener('click',()=>openLead(l));bottom.append(qualified?linksFor(l):node('span','no-contact',l.ignored||presence.status==='exists'?'Fora da prospecção':'Confira antes de abordar'),save);card.append(bottom);$('results').append(card);
   if(l.ignored){const actions=node('div','review-card-actions'),restore=node('button','restore-ignored-button','Voltar a verificar');restore.type='button';restore.addEventListener('click',()=>setIgnored(l,false));actions.append(restore);card.append(actions);}
-  else if(view==='review'){const actions=node('div','review-card-actions'),ignore=node('button','ignore-button','Ignorar'),google=node('button','google-button',googleCheck?'Rever consulta ↗':'Consultar Google ↗');ignore.type=google.type='button';ignore.setAttribute('aria-label','Ignorar '+l.name);google.setAttribute('aria-label',(googleCheck?'Rever consulta de ':'Consultar ')+l.name+' no Google');google.disabled=!googleReady&&!googleCheck;google.title=googleCheck?'Volta à aba de conferência sem repetir a consulta automaticamente':'Consulta individual; usa uma tentativa do limite Google';ignore.addEventListener('click',()=>setIgnored(l,true));google.addEventListener('click',()=>openGoogle([l],{runSingle:true}));actions.append(ignore,google);card.append(actions);}
+  else if(view==='review'){const actions=node('div','review-card-actions'),ignore=node('button','ignore-button','Ignorar');ignore.type='button';ignore.setAttribute('aria-label','Ignorar '+l.name);ignore.addEventListener('click',()=>setIgnored(l,true));actions.append(ignore);if(needsGoogleCheck(l,saved)){const google=node('button','google-button',googleCheck?'Rever consulta':'Consultar Google');google.type='button';google.setAttribute('aria-label',(googleCheck?'Rever consulta de ':'Consultar ')+l.name+' no Google');google.disabled=!googleReady&&!googleCheck;google.title=googleCheck?'Volta à conferência nesta aba, sem repetir a consulta automaticamente':'Consulta individual; usa uma tentativa do limite Google';google.addEventListener('click',()=>openGoogle([l],{runSingle:true}));actions.append(google);}card.append(actions);}
  }
  renderMarkers();$('results').scrollTop=listScroll;pendingListScroll=null;scheduleWorkspaceSave();
 }
@@ -129,7 +160,7 @@ function renderMarkers(){if(!map)return;markers.clearLayers();for(const l of vis
 function fitMap(){if(!map)return;const points=visible.map(l=>[l.lat,l.lon]);if(points.length)map.fitBounds(L.latLngBounds(points),{padding:[55,55],maxZoom:15});else if(currentCity)map.setView([currentCity.lat,currentCity.lon],12);}
 function focusLead(l){selectedId=l.id;render();if(map){map.setView([l.lat,l.lon],16);for(const marker of markers.getLayers()){const p=marker.getLatLng();if(p.lat===l.lat&&p.lng===l.lon){marker.openPopup();break;}}}}
 function openLead(l){
- selectedId=l.id;editingLead=merged(l);rechecking=false;$('lead-recheck').hidden=!canProspect(editingLead);const googleCheck=getGoogleCheck(editingLead,googleHistory);$('lead-google').hidden=(!googleReady&&!googleCheck)||editingLead.ignored;$('lead-google').textContent=googleCheck?'Rever consulta Google ↗':'Consultar site e funcionamento no Google ↗';const presence=digitalPresence(editingLead),known=digitalPresence({...editingLead,verified:'unknown',reviewUrl:''}).solutions.length>0;
+ selectedId=l.id;editingLead=merged(l);rechecking=false;$('lead-recheck').hidden=!canProspect(editingLead);const googleCheck=getGoogleCheck(editingLead,googleHistory);$('lead-google').hidden=(!googleReady&&!googleCheck)||!needsGoogleCheck(editingLead,saved);$('lead-google').textContent=googleCheck?'Rever consulta Google':'Consultar site e funcionamento no Google';const presence=digitalPresence(editingLead),known=digitalPresence({...editingLead,verified:'unknown',reviewUrl:''}).solutions.length>0;
  $('lead-title').textContent=l.name;$('lead-address').textContent=l.address+' · '+l.city;$('lead-stage').value=editingLead.stage;$('lead-verified').value=presence.status==='exists'?'exists':presence.status==='missing'?'missing':'unknown';$('lead-verified').querySelector('[value="missing"]').disabled=known||editingLead.ignored;
  $('lead-followup').value=editingLead.followup;$('lead-notes').value=editingLead.notes;$('lead-review-url').value=editingLead.reviewUrl||'';$('lead-review-url').setCustomValidity('');$('lead-remove').hidden=!isSaved(l.id);
  editingForm={verified:$('lead-verified').value,reviewUrl:$('lead-review-url').value,stage:$('lead-stage').value,followup:$('lead-followup').value,notes:$('lead-notes').value};
@@ -143,7 +174,7 @@ function updateReviewForm(){const value=$('lead-verified').value,missing=value==
  $('lead-stage').disabled=!missing;$('lead-followup').disabled=!missing;$('lead-save').textContent=value==='exists'?'Excluir da prospecção':missing?'Salvar oportunidade':'Salvar revisão';$('lead-review-note').textContent=value==='exists'?'Use esta opção quando houver site, cardápio, pedidos ou reservas. Redes sociais, sozinhas, não eliminam o candidato.':missing?'Confirme os três itens. Facebook e Instagram são permitidos; site, cardápio e sistema de pedidos contam como solução online.':'Ainda não conferido: continua candidato. Redes sociais podem indicar uma oportunidade de melhorar a presença online.';
  if(editingLead?.ignored){$('lead-save').textContent='Salvar revisão ignorada';$('lead-review-note').textContent='Ignorado por você. Use “Voltar a verificar” na lista de ignorados para liberar este estabelecimento novamente.';}
 }
-window.prospectaReviewCandidate=id=>{const lead=[...results,...saved].map(merged).find(item=>item.id===id);if(!lead)return false;if($('lead-dialog').open)$('lead-dialog').close();openLead(lead);window.focus();return true;};
+window.prospectaReviewCandidate=id=>{const lead=[...results,...saved].map(merged).find(item=>item.id===id);if(!lead)return false;if(googleViewShown){pendingReviewId=id;window.prospectaReturnToList();}else{if($('lead-dialog').open)$('lead-dialog').close();openLead(lead);}return true;};
 function setView(next,presence='qualified'){view=next;selectedId='';$('name-filter').value='';if(next==='saved')$('presence-filter').value=presence;render();fitMap();}
 function readCache(key){try{const cache=JSON.parse(localStorage.getItem(CACHE)||'[]');return cache.find(x=>x.key===key&&Date.now()-x.time<15*60*1000);}catch{return null;}}
 function writeCache(key,elements){try{const old=JSON.parse(localStorage.getItem(CACHE)||'[]').filter(x=>x.key!==key&&Date.now()-x.time<15*60*1000).slice(0,2);localStorage.setItem(CACHE,JSON.stringify([{key,time:Date.now(),elements},...old]));}catch{/* A full cache must never block CRM saves. */try{localStorage.removeItem(CACHE);}catch{}}}
@@ -163,7 +194,7 @@ for(const id of ['contact-only','stage-filter','presence-filter','sort'])$(id).a
 $('lead-verified').addEventListener('change',updateReviewForm);$('lead-review-url').addEventListener('input',()=>$('lead-review-url').setCustomValidity(''));
 $('google-review').addEventListener('click',()=>openGoogle(googleCandidates()));$('lead-google').addEventListener('click',()=>{if(editingLead)openGoogle([editingLead],{runSingle:true});});
 $('lead-recheck').addEventListener('click',()=>{rechecking=true;$('lead-recheck').hidden=true;for(const id of ['review-maps','review-web','review-confirm'])$(id).checked=false;$('lead-review-note').textContent='Nova conferência: consulte Maps e web novamente e confirme os três itens para atualizar a data.';$('verification-checklist').scrollIntoView({block:'nearest',behavior:'smooth'});});
-$('lead-close').addEventListener('click',()=>$('lead-dialog').close());$('lead-form').addEventListener('submit',e=>{
+$('lead-close').addEventListener('click',()=>$('lead-dialog').close());$('lead-dialog').addEventListener('close',()=>{if(pendingReviewId&&!googleViewShown){const id=pendingReviewId;pendingReviewId='';queueMicrotask(()=>{const lead=[...results,...saved].map(merged).find(item=>item.id===id);if(lead)openLead(lead);});}});$('lead-form').addEventListener('submit',e=>{
  e.preventDefault();if(!editingLead||!editingForm)return;const current=saved.find(s=>sameBusiness(s,editingLead))||editingLead,choice=$('lead-verified').value,rawUrl=$('lead-review-url').value.trim(),chosenUrl=choice==='exists'?safeUrl(rawUrl):'';
  if(choice==='exists'&&rawUrl&&!chosenUrl){$('lead-review-url').setCustomValidity('Use um link http:// ou https:// da solução encontrada.');$('lead-review-url').reportValidity();return;}
  if(choice==='exists'&&chosenUrl&&classifyWebsite(chosenUrl)!=='solution'){$('lead-review-url').setCustomValidity('Um perfil social ou agregador de links, sozinho, não elimina o candidato. Confira se há site, cardápio ou pedidos.');$('lead-review-url').reportValidity();return;}
@@ -182,6 +213,7 @@ function reloadSaved(){if(crmDirty)return;const next=leadStore?.load();if(next?.
 $('search-form').addEventListener('input',scheduleWorkspaceSave);$('search-form').addEventListener('change',scheduleWorkspaceSave);$('results').addEventListener('scroll',scheduleWorkspaceSave,{passive:true});
 window.addEventListener('pagehide',()=>flushWorkspace());document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushWorkspace();});
 window.addEventListener('storage',event=>{if(event.key===GOOGLE_HISTORY_KEY){googleHistory=loadGoogleHistory().entries;render();}if(event.key===STORAGE)reloadSaved();});window.addEventListener('pageshow',event=>{if(event.persisted){googleHistory=loadGoogleHistory().entries;reloadSaved();render();}});
+window.addEventListener('popstate',updateGoogleView);window.addEventListener('hashchange',updateGoogleView);
 setupMap();if(restoredWorkspace)restoreWorkspace(restoredWorkspace);else render();if(map)map.on('moveend zoomend',scheduleWorkspaceSave);googleStatus();
 if(!storageAvailable){$('local-state').textContent='Não foi possível ler a lista local. Os dados originais foram preservados.';toast('A lista salva não pôde ser lida. Nenhuma gravação substituirá os dados originais.');}
 try{
@@ -189,4 +221,4 @@ try{
  $('cities-list').replaceChildren(...cities.filter(c=>['Jaraguá do Sul','Joinville','Florianópolis','São Paulo','Curitiba'].includes(c.name)).slice(0,15).map(c=>new Option(c.name+' · '+c.uf)));$('city').disabled=false;$('search-button').disabled=false;
  if(!restoredWorkspace?.searched&&!results.length){if(recoverPreviousSearch())toast('Última busca recuperada neste navegador. Os dados mantêm a data da consulta anterior.');else if(!restoredWorkspace&&saved.length){view='saved';$('presence-filter').value='all';}}
 }catch{toast('Não foi possível carregar as cidades. Os dados salvos foram preservados.');}
-finally{workspaceReady=true;render();flushWorkspace();}
+finally{workspaceReady=true;render();flushWorkspace();updateGoogleView();}
