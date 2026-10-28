@@ -99,3 +99,15 @@ test('UI state is constrained to supported values and search records remain visi
  assert.equal(restored.view,'discover');assert.equal(restored.search.niche,'all');assert.equal(restored.search.radius,5);assert.equal(restored.filters.contactOnly,false);assert.equal(restored.filters.stage,'');assert.equal(restored.filters.sort,'distance');assert.equal(restored.filters.presence,'qualified');assert.equal(restored.selectedId,'');assert.equal(restored.listScrollTop,0);assert.equal(restored.mapView,null);assert.equal(restored.city,null);assert.equal(restored.searched,true);
  const limited=normalizeWorkspace(snapshot({results:Array.from({length:605},(_,index)=>lead(index+1))}));assert.equal(limited.results.length,600);
 });
+
+test('chosen map point and previous result area survive independently of city navigation and viewport',()=>{
+ const local=new Storage(),session=new Storage(),searchCenter={lat:-26.7,lon:-49.3,label:'Ponto no mapa',mode:'map'},searchedArea={lat:-26.5,lon:-49.1,label:'Área anterior',mode:'map',niche:'food',radius:3};
+ const state=snapshot({searchCenter,searchedArea,search:{cityInput:'',niche:'beauty',radius:10},mapView:{lat:-25,lon:-48,zoom:8}});assert.equal(saveWorkspace(state,{local,session}).ok,true);
+ const restored=loadWorkspace({local,session:new Storage()}).workspace;assert.deepEqual(restored.searchCenter,searchCenter);assert.deepEqual(restored.searchedArea,searchedArea);assert.equal(restored.search.cityInput,'');assert.equal(restored.search.radius,10);assert.equal(restored.mapView.lat,-25);assert.equal(restored.results.length,2);
+});
+
+test('legacy city searches migrate to a geographic center while invalid extra fields cannot enter it',()=>{
+ const legacy=normalizeWorkspace(snapshot());assert.deepEqual(legacy.searchCenter,{lat:city.lat,lon:city.lon,label:city.name+' · '+city.uf,mode:'city'});assert.equal(legacy.searchedArea.radius,3);assert.equal(legacy.searchedArea.lat,city.lat);
+ const clean=normalizeWorkspace(snapshot({searchCenter:{lat:0,lon:0,label:'Ponto no mapa',mode:'map',apiKey:'SYNTHETIC_SECRET'},searchedArea:null}));assert.equal(clean.searchCenter.lat,0);assert.equal(clean.searchedArea,null);assert.doesNotMatch(JSON.stringify(clean),/SYNTHETIC_SECRET/);
+ const invalid=normalizeWorkspace(snapshot({city:null,searchCenter:{lat:999,lon:0},searchedArea:{lat:0,lon:0,niche:'food',radius:999}}));assert.equal(invalid.searchCenter,null);assert.equal(invalid.searchedArea,null);assert.equal(invalid.results.length,2);
+});

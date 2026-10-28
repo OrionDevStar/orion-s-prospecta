@@ -72,14 +72,24 @@ A conferência é carregada em um documento separado dentro da tela Google, mant
 
 A separação dos resultados e a retenção temporária seguem as orientações de exibição e armazenamento das [políticas Places](https://developers.google.com/maps/documentation/places/web-service/policies) e nos [termos específicos](https://cloud.google.com/maps-platform/terms/maps-service-terms). A API não expõe todos os links vistos na interface do Maps e a integração não comprova ausência online. O uso do Google está sujeito aos [termos gerais](https://cloud.google.com/maps-platform/terms); a integração não autoriza copiar seus resultados para uma base permanente de leads.
 
+## Escolher a área de pesquisa
+
+Clique em um ponto do mapa ou arraste o marcador **Centro da busca**. O círculo mostra o raio escolhido antes da consulta. Arrastar ou dar zoom no mapa só muda a visualização; **Usar centro visível** escolhe o ponto central que está na tela, inclusive pelo teclado. Clique em **Buscar negócios** para consultar essa área. Mover o marcador não dispara buscas automaticamente.
+
+**Ir para cidade (opcional)** posiciona o mapa e o marcador no centro de um município brasileiro. Você pode mover o ponto depois, inclusive para fora desse município, ou pesquisar sem preencher esse campo. A lista de cidades não é necessária para buscar pelo mapa.
+
+As distâncias dos resultados são calculadas a partir do ponto enviado na última consulta. Alterar o centro, o raio ou o nicho mantém os resultados anteriores com um aviso até uma nova busca ser concluída. Uma falha não apaga a busca anterior. O centro escolhido e a área dos resultados ficam salvos separadamente, inclusive no backup e ao voltar da conferência Google. Buscas antigas baseadas em cidade são migradas para o centro geográfico correspondente.
+
+Quando o OpenStreetMap informa a cidade do estabelecimento, esse nome é usado. Sem essa informação, a aplicação pode indicar **Próximo a [cidade]** como referência de um centro municipal a até 40 km, sem afirmar que o ponto pertence a esse município. Fora dessa referência, usa as coordenadas da área. Essa identificação não limita a consulta nem altera o ponto escolhido.
+
 ## O que funciona
 
-- Busca por cidade brasileira, nicho e raio.
+- Busca por ponto escolhido no mapa, nicho e raio; cidade é um atalho opcional de navegação.
 - Negócios reais do OpenStreetMap via Overpass.
 - Mapa, filtro por contato e ordenação.
 - Detecção de links de site, cardápio, pedidos, reservas, redes sociais e agregadores de links disponíveis na fonte.
 - Oportunidades separadas de candidatos ainda não verificados; sites e soluções online identificados impedem a qualificação. Redes sociais, sozinhas, não excluem candidatos.
-- Busca e contexto de trabalho salvos automaticamente: empresas, cidade, nicho, raio, filtros, aba, seleção, mapa e posição da lista.
+- Busca e contexto de trabalho salvos automaticamente: empresas, centro escolhido, área da última pesquisa, nicho, raio, filtros, aba, seleção, mapa e posição da lista.
 - Telefone, Instagram e WhatsApp quando disponíveis.
 - Lista pessoal com etapa, revisão de presença digital, evidências, notas e data de retorno.
 - CSV dos resultados filtrados, com atribuição da fonte.
@@ -107,9 +117,9 @@ Para transferir uma lista entre instalações, exporte um arquivo em **Backup** 
 
 O CSV respeita a aba e os filtros ativos e inclui o estado da presença digital, a qualificação, os links de evidência e a data da revisão. Um CSV de candidatos ou de todas as revisões inclui registros não qualificados, identificados como tal.
 
-A busca precisa de internet e envia centro aproximado, raio e tipo de negócio ao Overpass. O mapa usa OpenFreeMap. O aplicativo não envia mensagens, não tem rastreamento e não solicita geolocalização do dispositivo. A data de retorno é um registro, sem notificação automática.
+A busca precisa de internet e envia as coordenadas do centro escolhido, o raio e o tipo de negócio ao Overpass. O mapa usa OpenFreeMap. O aplicativo não envia mensagens, não tem rastreamento e não solicita geolocalização do dispositivo. A data de retorno é um registro, sem notificação automática.
 
-O cache de respostas reutilizáveis dura 15 minutos; a lista de trabalho salva é independente desse prazo. Consultas novas têm intervalo mínimo de 10 segundos. Cada consulta retorna até 600 registros brutos, não um censo de empresas. A cobertura e os contatos variam por região; os registros podem estar incompletos ou desatualizados.
+O cache de respostas reutilizáveis usa coordenadas, nicho e raio como chave e dura 15 minutos; a lista de trabalho salva é independente desse prazo. Consultas novas têm intervalo mínimo de 10 segundos. Cada consulta retorna até 600 registros brutos, não um censo de empresas. A cobertura e os contatos variam por região; os registros podem estar incompletos ou desatualizados.
 
 ## Desenvolver e testar
 
@@ -126,7 +136,8 @@ Edite diretamente os arquivos de `dist/` e recarregue o navegador. Não há comp
 | `dist/styles.css` | Estilos responsivos |
 | `dist/app.mjs` | Interface, mapa, busca e persistência |
 | `dist/domain.mjs` | Normalização, consultas, CSV e backup |
-| `dist/workspace.mjs` | Busca OpenStreetMap e contexto de trabalho preservados no navegador |
+| `dist/workspace.mjs` | Busca OpenStreetMap, centro escolhido e contexto de trabalho preservados no navegador |
+| `dist/search-area.mjs` | Centro geográfico, chave de cache e referência municipal opcional |
 | `dist/lead-store.mjs` | Gravação da lista pessoal sem sobrescrever dados ilegíveis ou edições independentes de outras abas |
 | `tests/` | Testes de domínio e servidor local |
 | `scripts/prepare-assets.mjs` | Aquisição reproduzível de bibliotecas e municípios |

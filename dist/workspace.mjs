@@ -1,4 +1,5 @@
 import {NICHES,STAGES,validateBackup} from './domain.mjs';
+import {normalizeSearchCenter,normalizeSearchArea} from './search-area.mjs';
 
 export const WORKSPACE_KEY='prospecta-workspace-v1';
 export const WORKSPACE_TAB_KEY='prospecta-workspace-tab-v1';
@@ -44,7 +45,9 @@ export function normalizeWorkspace(raw){
  try{
   if(!record(raw)||raw.version!==1)return null;
   const results=sourceResults(raw.results),city=cityData(raw.city),search=record(raw.search)?raw.search:{},filters=record(raw.filters)?raw.filters:{},map=record(raw.mapView)?raw.mapView:null;
-  return {version:1,tabId:validTabId(raw.tabId),results,city,search:{cityInput:text(search.cityInput,180)||(city?city.name+' · '+city.uf:''),niche:Object.hasOwn(NICHES,search.niche)?search.niche:'all',radius:[3,5,10,20].includes(search.radius)?search.radius:5},view:views.has(raw.view)?raw.view:'discover',filters:{name:text(filters.name,300),contactOnly:filters.contactOnly===true,stage:STAGES.includes(filters.stage)?filters.stage:'',sort:sorts.has(filters.sort)?filters.sort:'distance',presence:presences.has(filters.presence)?filters.presence:'qualified'},selectedId:typeof raw.selectedId==='string'&&/^osm:(node|way|relation):\d+$/.test(raw.selectedId)?raw.selectedId:'',listScrollTop:typeof raw.listScrollTop==='number'&&Number.isFinite(raw.listScrollTop)?Math.max(0,Math.min(10000000,raw.listScrollTop)):0,mapView:map&&coordinate(map.lat,90)&&coordinate(map.lon,180)&&typeof map.zoom==='number'&&Number.isFinite(map.zoom)&&map.zoom>=1&&map.zoom<=20?{lat:map.lat,lon:map.lon,zoom:map.zoom}:null,searched:raw.searched===true||results.length>0,searchedAt:timestamp(raw.searchedAt),updatedAt:timestamp(raw.updatedAt)};
+  const niche=Object.hasOwn(NICHES,search.niche)?search.niche:'all',radius=[3,5,10,20].includes(search.radius)?search.radius:5,searched=raw.searched===true||results.length>0,legacyCenter=city?{lat:city.lat,lon:city.lon,label:city.name+' · '+city.uf,mode:'city'}:null;
+  const searchCenter=normalizeSearchCenter(raw.searchCenter)||normalizeSearchCenter(legacyCenter),searchedArea=normalizeSearchArea(raw.searchedArea)||(searched&&legacyCenter&&!Object.hasOwn(raw,'searchedArea')?normalizeSearchArea({...legacyCenter,niche,radius}):null);
+  return {version:1,tabId:validTabId(raw.tabId),results,city,searchCenter,searchedArea,search:{cityInput:text(search.cityInput,180),niche,radius},view:views.has(raw.view)?raw.view:'discover',filters:{name:text(filters.name,300),contactOnly:filters.contactOnly===true,stage:STAGES.includes(filters.stage)?filters.stage:'',sort:sorts.has(filters.sort)?filters.sort:'distance',presence:presences.has(filters.presence)?filters.presence:'qualified'},selectedId:typeof raw.selectedId==='string'&&/^osm:(node|way|relation):\d+$/.test(raw.selectedId)?raw.selectedId:'',listScrollTop:typeof raw.listScrollTop==='number'&&Number.isFinite(raw.listScrollTop)?Math.max(0,Math.min(10000000,raw.listScrollTop)):0,mapView:map&&coordinate(map.lat,90)&&coordinate(map.lon,180)&&typeof map.zoom==='number'&&Number.isFinite(map.zoom)&&map.zoom>=1&&map.zoom<=20?{lat:map.lat,lon:map.lon,zoom:map.zoom}:null,searched,searchedAt:timestamp(raw.searchedAt),updatedAt:timestamp(raw.updatedAt)};
  }catch{return null;}
 }
 
