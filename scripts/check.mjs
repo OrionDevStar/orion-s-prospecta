@@ -15,12 +15,15 @@ for(const folder of ['dist','scripts','tests']){
   count++;
  }
 }
-const html=await readFile(resolve(root,'dist/index.html'),'utf8');
-for(const match of html.matchAll(/(?:href|src)="([^"]+)"/g)){
- const ref=match[1];
- if(/^(?:https?:|#|\.\/$)/.test(ref))continue;
- if(ASSETS.some(a=>a.path===ref))continue;
- try{if(!(await stat(resolve(root,'dist',ref))).isFile())throw new Error();}
- catch{throw new Error('Referência local não encontrada: '+ref);}
+for(const entry of await readdir(resolve(root,'dist'))){
+ if(!entry.endsWith('.html'))continue;
+ const html=await readFile(resolve(root,'dist',entry),'utf8');
+ for(const match of html.matchAll(/(?:href|src)="([^"]+)"/g)){
+  const ref=match[1];
+  if(/^(?:https?:|#|\.\/$)/.test(ref))continue;
+  if(ASSETS.some(a=>a.path===ref))continue;
+  try{if(!(await stat(resolve(root,'dist',ref))).isFile())throw new Error();}
+  catch{throw new Error('Referência local não encontrada em '+entry+': '+ref);}
+ }
 }
 console.log(count+' módulos com sintaxe válida; referências locais conferidas.');

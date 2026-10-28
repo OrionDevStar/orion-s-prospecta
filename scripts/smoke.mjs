@@ -15,9 +15,12 @@ try{
  });
  const home=await fetch(origin+'/');assert.equal(home.status,200);assert.match(await home.text(),/search-form/);
  const module=await fetch(origin+'/app.mjs');assert.equal(module.status,200);assert.match(module.headers.get('content-type'),/javascript/);
+ const google=await fetch(origin+'/google.html');assert.equal(google.status,200);assert.match(await google.text(),/verify-batch/);
+ const places=await fetch(origin+'/api/places/status');assert.equal(places.status,200);assert.equal(typeof (await places.json()).enabled,'boolean');
+ const secret=await fetch(origin+'/.env');assert.equal(secret.status,403);
  const cities=await fetch(origin+'/cities.json');assert.equal(cities.status,200);assert.ok((await cities.json()).length>=5000);
  for(const file of ['leaflet.js','leaflet.css','maplibre-gl.js','maplibre-gl.css','leaflet-maplibre-gl.js','leaflet-vectorgrid.js']){
   const resource=await fetch(origin+'/vendor/'+file,{method:'HEAD'});assert.equal(resource.status,200,file);assert.ok(Number(resource.headers.get('content-length'))>0,file);
  }
- console.log('Inicialização local verificada: interface, módulos, municípios e bibliotecas disponíveis.');
+ console.log('Inicialização local verificada: interface, conferência Google, municípios e bibliotecas disponíveis; configuração privada protegida. Nenhuma consulta ao Google foi iniciada.');
 }finally{clearTimeout(timeout);if(child.exitCode===null){const exit=once(child,'exit');child.kill();await exit;}}

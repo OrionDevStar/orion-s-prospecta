@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#153c34">
+  <meta name="description" content="Escolha os negócios e confira sites e funcionamento no Google Maps com consultas limitadas à franquia configurada.">
+  <title>Conferir no Google · Prospecta</title>
+  <link rel="stylesheet" href="google.css">
+  <script src="google.mjs" type="module"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="./" class="brand" aria-label="Prospecta início"><span class="brand-icon" aria-hidden="true">p<span>↗</span></span><span>prospecta<span class="brand-dot">.</span></span></a>
+    <a href="./" class="back-link">← Voltar à busca local</a>
+  </header>
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">CONFERÊNCIA DE ESTABELECIMENTOS</p><h1 id="page-title">Confira antes de abordar.</h1><p>O resultado aparece no próprio cartão, sem tirar a empresa da lista. Facebook e Instagram podem indicar uma oportunidade para oferecer site, cardápio ou pedidos.</p></div>
+      <span class="source-pill" aria-label="Dados fornecidos pelo Google Maps">Google Maps</span>
+    </section>
+
+    <section class="usage-panel" aria-labelledby="usage-title">
+      <div class="usage-heading"><div><h2 id="usage-title">Consultas com limite</h2><p id="places-status" role="status">Conferindo a disponibilidade da integração…</p></div><button id="refresh-status" type="button" class="text-button">Atualizar status</button></div>
+      <div class="usage-grid">
+        <div class="usage-item"><span>Este mês</span><strong id="monthly-usage">—</strong><progress id="monthly-progress" max="900" value="0" aria-label="Consultas usadas neste mês"></progress></div>
+        <div class="usage-item"><span>Hoje</span><strong id="daily-usage">—</strong><progress id="daily-progress" max="25" value="0" aria-label="Consultas usadas hoje"></progress></div>
+        <div class="usage-item"><span>Últimos 32 dias</span><strong id="rolling-usage">—</strong><progress id="rolling-progress" max="900" value="0" aria-label="Consultas usadas nos últimos 32 dias"></progress></div>
+      </div>
+      <p id="limit-note" class="small muted">A integração bloqueia novas consultas ao atingir o primeiro limite. Os créditos de teste não ampliam esses limites automaticamente.</p>
+      <p class="small muted">A faixa gratuita atual de Text Search Enterprise inclui 1.000 chamadas por mês. O teto de 900 desta instalação deixa uma margem. <a href="https://developers.google.com/maps/billing-and-pricing/pricing" target="_blank" rel="noopener noreferrer">Tabela do Google</a>.</p>
+      <p class="small muted">O contador cobre esta instalação do Prospecta. Outros aplicativos ou instalações podem consumir a mesma franquia da sua conta Google.</p>
+      <p class="small muted">Para proteger também o projeto, revise a cota diária de Text Search no <a href="https://console.cloud.google.com/apis/api/places.googleapis.com/quotas" target="_blank" rel="noopener noreferrer">Google Cloud</a> e reduza para 25, quando disponível. Alertas de orçamento não bloqueiam cobranças.</p>
+    </section>
+
+    <section class="review-panel" aria-labelledby="queue-title">
+      <div class="queue-heading"><div><h2 id="queue-title">Candidatos e resultados <span id="candidate-count" class="count">0</span></h2><p id="queue-summary">Nenhum negócio foi consultado ainda.</p></div><div class="queue-actions"><button id="verify-next" type="button" class="secondary" disabled>Consultar 1 selecionado</button><button id="verify-batch" type="button" class="primary" disabled>Consultar selecionados</button><button id="cancel-batch" type="button" class="secondary" hidden>Parar próximas consultas</button></div></div>
+      <div class="selection-toolbar"><span id="selection-count" role="status" aria-live="polite">0 selecionados</span><div><button id="select-all" type="button" class="text-button">Selecionar todos pendentes</button><button id="clear-selection" type="button" class="text-button" disabled>Limpar seleção</button></div></div>
+      <p id="batch-status" class="batch-status" role="status" aria-live="polite">Cada negócio consultado usa uma chamada da franquia.</p>
+      <div id="page-error" class="error-message" role="alert" hidden></div>
+      <div id="candidates-list" class="candidates-list" aria-label="Candidatos e conferências pendentes"></div>
+    </section>
+
+    <aside class="explanation"><h2>Redes sociais podem indicar uma oportunidade.</h2><p>Um Facebook ou Instagram não elimina o negócio. Confira se já há site, cardápio, sistema de pedidos ou reservas antes de concluir a revisão. A API não fornece todos os links que aparecem no Google Maps e os fechamentos podem estar desatualizados.</p><p>O resultado permanece no próprio cartão. “Ignorar na minha lista” e “Manter para revisar” salvam sua decisão e preservam suas notas. A data e o atalho para a ficha no Maps ficam salvos; abrir essa ficha não consome consultas da API.</p><p>Enquanto a busca local permanecer aberta, você pode voltar, recarregar ou reabrir esta aba Google e rever os detalhes sem repetir a consulta. Se as duas páginas forem fechadas ou recarregadas, os detalhes podem ser perdidos; suas revisões e o atalho continuam salvos. Atualizar dados exige uma nova chamada explícita.</p></aside>
+    <details class="privacy-note"><summary>Sobre os dados e esta consulta</summary><p>Ao consultar um candidato, o nome, a cidade, a localização, o endereço e o telefone disponíveis são enviados ao servidor local e ao Google para encontrar o estabelecimento correspondente. O servidor guarda somente contadores de uso para limitar as chamadas; a chave de API fica no servidor.</p><p>Os candidatos originais vêm do <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>. Os resultados identificados como Google Maps são fornecidos pela Places API. O uso desses recursos está sujeito aos <a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noopener noreferrer">Termos do Google Maps</a> e à <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Política de Privacidade do Google</a>.</p></details>
+    <footer class="page-footer"><span>Feito para uma prospecção mais cuidadosa.</span><span class="google-attribution">Dados da consulta: <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer">Google Maps</a></span></footer>
+  </main>
+</body>
+</html>
