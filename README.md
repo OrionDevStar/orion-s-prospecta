@@ -1,8 +1,8 @@
-# Prospecta · Orion
+# Prospecta
 
-Ferramenta pessoal para encontrar negócios locais e organizar prospecção. Esta é a referência do código do Prospecta: você pode clonar, modificar e hospedar por conta própria, sem login do ChatGPT e sem chave de API.
+Aplicação web para encontrar negócios locais e organizar prospecção com dados do OpenStreetMap. Pode ser executada localmente ou publicada em um servidor estático, sem conta de usuário ou chave de API.
 
-## Rodar no seu computador
+## Instalação e execução local
 
 Requisito: **Node.js 24 ou superior**, com npm.
 
@@ -40,7 +40,7 @@ O servidor escuta somente em `127.0.0.1` por padrão. Caso queira expor em outra
 
 A lista pessoal, as notas e o cache ficam no **localStorage do navegador**, na origem em que você abriu o aplicativo. Não há banco de dados no servidor. Alterar host ou porta muda essa origem: exporte Backup antes de trocar de endereço, navegador ou computador.
 
-A lista da publicação anterior em ChatGPT Sites não migra automaticamente para localhost. Exporte o Backup lá e use **Importar backup** aqui. A importação acrescenta IDs novos e preserva os registros já existentes.
+Para transferir uma lista entre instalações, exporte um arquivo em **Backup** na instalação de origem e use **Importar backup** na de destino. A importação acrescenta IDs novos e preserva os registros já existentes.
 
 A busca precisa de internet e envia centro aproximado, raio e tipo de negócio ao Overpass. O mapa usa OpenFreeMap. O aplicativo não envia mensagens, não tem rastreamento e não solicita geolocalização do dispositivo. A data de retorno é um registro, sem notificação automática.
 
@@ -68,7 +68,7 @@ Edite diretamente os arquivos de `dist/` e recarregue o navegador. Não há comp
 
 `dist/vendor/` e `dist/cities.json` são preparados automaticamente e ignorados pelo Git. Para recriá-los com as mesmas versões, use `npm run prepare:assets`. Para atualizar uma dependência, altere o manifesto e execute `npm run prepare:assets -- --force`.
 
-## Hospedar por conta própria
+## Hospedagem
 
 Prepare os arquivos:
 
@@ -76,7 +76,7 @@ Prepare os arquivos:
 npm run prepare:assets
 ```
 
-Publique o conteúdo de `dist/` em qualquer servidor estático. Não é preciso API do ChatGPT, autenticação OpenAI ou backend específico. A publicação anterior em ChatGPT Sites **não recebe deploy automático a partir deste GitHub**.
+Publique o conteúdo de `dist/` em um servidor estático. A aplicação não exige autenticação, banco de dados ou backend específico. Mapas e buscas continuam dependendo de conexão com os serviços externos descritos abaixo.
 
 ## Fontes e licenças de terceiros
 
